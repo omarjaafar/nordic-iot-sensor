@@ -15,6 +15,20 @@ Energy-harvested IoT sensor node running on a Dracula Technologies indoor OPV so
 
 ---
 
+## What's Working Right Now
+
+- VEML7700 lux, SHTC3 temperature and humidity reading over I2C
+- Duty-cycled firmware — wake, read sensors, transmit, sleep on a configurable interval
+- BLE advertising with a custom GATT service; phone or laptop connects without pairing
+- Web dashboard (Chrome/Edge) showing live sensor cards, min/max/avg, scrolling history charts
+- Sample interval adjustable remotely from the dashboard — writes to firmware over BLE, takes effect next cycle
+- Solar harvest estimate computed live from the lux reading using a linear model fit to measured panel data
+- Lux threshold alert — dashboard flags when ambient light drops below the break-even point (~208 lux)
+- CSV export of all session readings including solar estimate
+- PMIC status panel in dashboard — tiles are present and labelled, greyed out until Milestone 12
+
+---
+
 ## Environment Setup
 
 **Everything runs through nRF Connect for VS Code.**
@@ -87,8 +101,17 @@ Features: live sensor cards with min/max/avg, history charts, sample interval sl
 
 **Solar model:** linear fit to two measured OPV panel data points — 400 lux → 0.21125 mWh, 3000 lux → 3.063 mWh. Break-even for 0.5% duty cycle is ~208 lux. Lux card turns red below that.
 
+
+
 ---
 
 ## Milestone Status
 
 Milestones 0–11 complete. Milestone 12 (PMIC) is next — wiring and firmware steps above.
+
+---
+
+## Other Files
+
+- `CLAUDE.md` — project brief, system architecture, development principles, and advisor feedback. Full context on why decisions were made.
+- `milestones.md` — incremental bring-up plan used to build the system step by step. Useful if you want to understand what was done and in what order.
