@@ -5,6 +5,13 @@ Energy-harvested IoT sensor node running on a Dracula Technologies indoor OPV so
 
 ---
 
+## Other Files
+
+- `CLAUDE.md` — project brief, system architecture, development principles, and advisor feedback. Full context on why decisions were made.
+- `milestones.md` — incremental bring-up plan used to build the system step by step. Useful if you want to understand what was done and in what order.
+
+---
+
 ## Daniel — What Needs To Be Done
 
 1. **Wire PMIC** — AEM10330 status pins to P0.03/04/28/29 (A0–A3 on DK header). Full details in the PMIC section below.
@@ -109,9 +116,3 @@ Features: live sensor cards with min/max/avg, history charts, sample interval sl
 
 Milestones 0–11 complete. Milestone 12 (PMIC) is next — wiring and firmware steps above.
 
----
-
-## Other Files
-
-- `CLAUDE.md` — project brief, system architecture, development principles, and advisor feedback. Full context on why decisions were made.
-- `milestones.md` — incremental bring-up plan used to build the system step by step. Useful if you want to understand what was done and in what order.
