@@ -5,6 +5,16 @@ Energy-harvested IoT sensor node running on a Dracula Technologies indoor OPV so
 
 ---
 
+## Daniel — What Needs To Be Done
+
+1. **Wire PMIC** — AEM10330 status pins to P0.03/04/28/29 (A0–A3 on DK header). Full details in the PMIC section below.
+2. **Add PMIC firmware** — read the 4 GPIO pins once per duty cycle in `main.c` using Zephyr `gpio_pin_configure` + `gpio_pin_get`. Reference your ESP32 code for logic.
+3. **Replace sleep method** — `main.c` currently uses `k_msleep` which keeps the CPU on. Swap for `pm_state_force` (system-off) + RTC wakeup so the board hits its lowest power state between cycles. Required before running untethered on battery.
+4. **Resolve PMIC ambiguity** — ST_STO_RDY and ST_STO_OVDIS have been seen asserting simultaneously (flagged by advisor). Fix before trusting battery state.
+5. **Activate PMIC dashboard tiles** — the web app already has the 4 placeholder tiles. Wire them to a BLE characteristic once firmware is reading the pins.
+
+---
+
 ## Environment Setup
 
 **Everything runs through nRF Connect for VS Code.**
