@@ -460,26 +460,87 @@ BLE should come after sensor and timing bring-up, not before.
 
 ## Milestone 12 – PMIC / Battery Integration
 
-- [ ] Complete
+- [x] Complete
 
 ### Objective
 Add the actual energy system interface once MCU + sensors are stable.
 
-### What the code should do
-- Read PMIC or threshold pins
-- Monitor battery state inputs
-- Resolve threshold ambiguity
-- Log battery / energy status alongside sensor data
+### What the code does
+- Reads 4 AEM10330 status pins (ST_LOAD, ST_STO, ST_STO_RDY, ST_STO_OVDIS) via GPIO
+- Decodes battery state (HEALTHY / MID / DEPLETED / INVALID)
+- Logs PMIC state each duty cycle
+- Notifies BLE dashboard over PMIC characteristic
+
+### Status
+PMIC wired to nRF52840 and confirmed working. All 4 status pins reading correctly.
+Dashboard PMIC tiles receiving live data over BLE.
+
+---
+
+## Milestone 13 – Battery Voltage Readout (ADC)
+
+- [ ] Retest needed
+
+### Objective
+Read raw battery voltage via ADC and report mV over BLE.
+
+### Current implementation
+- ADC channel: AIN6 = P0.30
+- Gain: 1/6, reference: internal 600 mV, resolution: 12-bit
+- Voltage divider ×2 applied in firmware
+- BLE characteristic: BATT (UUID ...cdef6)
+
+### Known issue
+Last test session: ADC returning junk values around ~100 mV. Root cause not yet confirmed.
+Possible causes:
+- P0.30 not physically connected to voltage divider
+- Voltage divider resistors not wired or wrong ratio
+- ADC reading floating pin
 
 ### Test
-1. Validate pin/channel mapping carefully
-2. Confirm thresholds behave as expected
-3. Confirm no simultaneous impossible states
-4. Compare readings against external measurement if possible
+1. Wire up hardware as before
+2. Flash current firmware
+3. Check RTT log: `Battery: XXXX mV (raw ADC: YYY)`
+4. Compare against a multimeter reading of the actual battery voltage
+5. If still ~100 mV, check P0.30 pin continuity and voltage divider circuit with multimeter
+
+### Expected output (working)
+```
+Battery: 3820 mV (raw ADC: 2170)
+```
 
 ### Exit Criteria
-- PMIC/battery signals are trusted
-- Energy-state logic can be built on top of them
+- ADC reading matches multimeter within ~100 mV
+- Value updates plausibly over time as battery charges/discharges
+
+---
+
+## Milestone 14 – Deep Sleep (System Off / pm_state_force)
+
+- [ ] Complete
+
+### Objective
+Replace `k_msleep()` with true system-off sleep so the CPU hits its lowest power state between duty cycles. Required before running untethered on battery.
+
+### What needs to change
+- Replace `k_msleep(sleep_interval_s * 1000)` in the main loop
+- Use `pm_state_force(0, &(struct pm_state_info){PM_STATE_SOFT_OFF, 0, 0})`
+- Configure RTC/timer wakeup to resume after the interval
+
+### Notes
+- `k_msleep` keeps the CPU running — not acceptable for low-power operation
+- System-off wakes by resetting the MCU, so firmware re-runs from `main()` each cycle
+- Uptime counter resets each wake — adjust if session uptime tracking is needed
+
+### Test
+1. Flash with system-off sleep
+2. Confirm duty cycle still fires at expected interval
+3. Measure current draw during sleep with INA219 or bench power supply
+4. Compare vs k_msleep baseline
+
+### Exit Criteria
+- Sleep current drops to sub-mA levels between cycles
+- Duty cycle timing remains reliable
 
 ---
 
@@ -499,7 +560,9 @@ Always follow this order:
 10. Timed sampling works
 11. Duty cycle skeleton works
 12. BLE works
-13. PMIC integration works
+13. PMIC integration works ✅
+14. Battery ADC (voltage readout) works — **in progress, retest needed**
+15. Deep sleep (system-off) works
 
 Do not skip ahead.
 
@@ -547,26 +610,23 @@ This makes rollback and debugging easier.
 ## Current Immediate Next Step
 
 ### Next milestone to do now
-**Milestone 3 → Milestone 4**
+**Milestone 13 — Battery ADC retest**
 
-Meaning:
-- wire sensors to:
-  - 3.3V
-  - GND
-  - P0.26 SDA
-  - P0.27 SCL
-- create I2C bus config
-- run I2C scan
-- confirm addresses
+Hardware is being reconnected. Steps:
+1. Flash current firmware (no code changes needed yet)
+2. Open RTT and confirm PMIC pins still reading correctly
+3. Check battery ADC output: `Battery: XXXX mV (raw ADC: YYY)`
+4. If still ~100 mV, probe P0.30 and voltage divider with a multimeter
+5. Once ADC is reading correctly, move on to Milestone 14 (deep sleep)
 
 ---
 
 ## What Success Looks Like Right Now
 
 Right now, success means:
-- all three sensors are wired correctly
-- firmware sees the I2C bus
-- scan finds the devices
-- logs show sensor addresses
+- Hardware reconnected and firmware confirmed still running
+- PMIC status pins reading sensible values (no spurious INVALID state)
+- Battery ADC returning a plausible voltage (3000–4200 mV range for a Li-Po)
+- Value matches or is close to a multimeter reading
 
 That is the next real checkpoint.

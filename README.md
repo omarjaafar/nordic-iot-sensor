@@ -1,57 +1,13 @@
 # nRF52840 DK — Low Power IoT Sensing System
-ECE 4013/4014 — Senior Design
+**ECE 4013/4014 Senior Design**
 
-Energy-harvested IoT sensor node running on a Dracula Technologies indoor OPV solar panel. Reads ambient light, temperature, and humidity over I2C, duty-cycles to stay within an ultra-low power budget, and streams readings over BLE to a browser dashboard.
-
----
-
-## Other Files
-
-- `CLAUDE.md` — project brief, system architecture, development principles, and advisor feedback. Full context on why decisions were made.
-- `milestones.md` — incremental bring-up plan used to build the system step by step. Useful if you want to understand what was done and in what order.
+Energy-harvested indoor IoT sensor node powered by a Dracula Technologies indoor OPV solar panel. The system reads ambient light, temperature, and humidity over I2C, duty-cycles to minimize power consumption, and streams sensor data over BLE to a browser-based dashboard.
 
 ---
 
-## Daniel — What Needs To Be Done
+## System Architecture
 
-1. **Wire PMIC** — AEM10330 status pins to P0.03/04/28/29 (A0–A3 on DK header). Full details in the PMIC section below.
-2. **Add PMIC firmware** — read the 4 GPIO pins once per duty cycle in `main.c` using Zephyr `gpio_pin_configure` + `gpio_pin_get`. Reference your ESP32 code for logic.
-3. **Replace sleep method** — `main.c` currently uses `k_msleep` which keeps the CPU on. Swap for `pm_state_force` (system-off) + RTC wakeup so the board hits its lowest power state between cycles. Required before running untethered on battery.
-4. **Resolve PMIC ambiguity** — ST_STO_RDY and ST_STO_OVDIS have been seen asserting simultaneously (flagged by advisor). Fix before trusting battery state.
-5. **Activate PMIC dashboard tiles** — the web app already has the 4 placeholder tiles. Wire them to a BLE characteristic once firmware is reading the pins.
-
----
-
-## What's Working Right Now
-
-- VEML7700 lux, SHTC3 temperature and humidity reading over I2C
-- Duty-cycled firmware — wake, read sensors, transmit, sleep on a configurable interval
-- BLE advertising with a custom GATT service; phone or laptop connects without pairing
-- Web dashboard (Chrome/Edge) showing live sensor cards, min/max/avg, scrolling history charts
-- Sample interval adjustable remotely from the dashboard — writes to firmware over BLE, takes effect next cycle
-- Solar harvest estimate computed live from the lux reading using a linear model fit to measured panel data
-- Lux threshold alert — dashboard flags when ambient light drops below the break-even point (~208 lux)
-- CSV export of all session readings including solar estimate
-- PMIC status panel in dashboard — tiles are present and labelled, greyed out until Milestone 12
-
----
-
-## Environment Setup
-
-**Everything runs through nRF Connect for VS Code.**
-
-1. Install [nRF Connect for Desktop](https://www.nordicsemi.com/Products/Development-tools/nRF-Connect-for-Desktop)
-2. Install the **Toolchain Manager** and **nRF Connect SDK** from within that app (use the latest stable SDK version)
-3. Install the **nRF Connect for VS Code** extension pack in VS Code
-4. Open `apps/sensor_bringup` as the application folder
-5. Add a build configuration — board target: `nrf52840dk_nrf52840`
-6. Build → Flash using the nRF Connect sidebar
-
-**Debug output is via RTT, not UART.** After flashing:
-- Connected Devices panel → click **RTT** → Search for RTT memory address automatically
-- Immediately press the **RESET button** on the DK to catch the boot log
-- If RTT fails ("Could not connect to port") — rebuild and reflash, then retry
-- If device shows as **NRF52_FAMILY** instead of **NRF52840_xxAA** — unplug/replug USB and refresh
+Solar Panel → AEM10330 PMIC → Li-Po Battery → nRF52840 → I2C Sensors → BLE → Browser Dashboard
 
 ---
 
@@ -59,18 +15,14 @@ Energy-harvested IoT sensor node running on a Dracula Technologies indoor OPV so
 
 | Component | Interface | Address / Pins |
 |---|---|---|
-| VEML7700 (light) | I2C | 0x10 |
-| SHTC3 (temp/humidity) | I2C | 0x70 |
-| INA219 (voltage/current) | I2C | 0x40 — deferred |
+| VEML7700 (ambient light) | I2C | 0x10 |
+| SHTC3 (temperature / humidity) | I2C | 0x70 |
+| INA219 (voltage / current) | I2C | 0x40 — deferred |
 | AEM10330 PMIC | GPIO | see below |
 
-I2C bus: SDA = P0.26, SCL = P0.27, 3.3V only. All three sensors share these two lines in parallel.
+I2C bus: SDA = P0.26, SCL = P0.27, 3.3V. All sensors share the same two lines.
 
----
-
-## PMIC — AEM10330 (Milestone 12, not yet wired)
-
-The AEM10330 is GPIO-only (no I2C). Wire 4 status pins as digital inputs to the nRF52840:
+### PMIC — AEM10330 Status Pins
 
 | AEM10330 Pin | nRF52840 | DK Header |
 |---|---|---|
@@ -79,40 +31,77 @@ The AEM10330 is GPIO-only (no I2C). Wire 4 status pins as digital inputs to the 
 | ST_STO_RDY | P0.28 | A2 |
 | ST_STO_OVDIS | P0.29 | A3 |
 
-Common GND required. 3.3V logic — not 5V tolerant.
+Battery state is threshold-based. ST_STO_RDY = 1, ST_STO_OVDIS = 0 indicates healthy (above 3.5 V). ST_STO_OVDIS = 1 indicates over-discharge protection active (below 3.0 V).
 
-**Battery state:**
+---
 
-| ST_STO_RDY | ST_STO_OVDIS | Meaning |
-|---|---|---|
-| 1 | 0 | > 3.5 V — healthy |
-| 0 | 0 | 3.1–3.5 V — mid |
-| 0 | 1 | < 3.1 V — over-discharge protection |
-| 1 | 1 | Invalid — should not happen |
+## Firmware
 
-**Known issue (advisor-flagged):** both RDY and OVDIS asserting simultaneously has been observed. Likely noise or wrong pin mapping — do not trust battery state until resolved.
+Built with nRF Connect SDK (Zephyr RTOS), board target `nrf52840dk_nrf52840`, written in C.
 
-**Firmware:** the existing `main.c` does not read PMIC pins yet. Add `gpio_pin_configure()` + `gpio_pin_get()` for each pin and read them once per duty cycle alongside the sensor reads. Reference your ESP32 code for the logic — only the GPIO API calls differ.
+**Duty cycle loop:** wake on timer → read VEML7700 and SHTC3 → read AEM10330 PMIC status pins → read battery ADC → BLE notify all characteristics → sleep. Sleep interval is configurable from 5 seconds to 60 minutes via the dashboard without reflashing.
 
-The web dashboard already has a PMIC status panel with 4 placeholder tiles ready to activate once wired.
+**Sleep:** currently uses `k_msleep()` (CPU-on sleep with RAM retention). True system-off sleep (`pm_state_force`) is planned as a future improvement.
 
 ---
 
 ## Web Dashboard
 
-Open `webapp/index.html` directly in Chrome. No server needed.
+Open `webapp/index.html` directly in Chrome or Edge. No server or backend required.
 
-Requires **Web Bluetooth** — Chrome or Edge only. Click **Connect to NordicIoT** and select the board.
+Requires Web Bluetooth. Click **Connect to NordicIoT** and select the board from the browser prompt.
 
-Features: live sensor cards with min/max/avg, history charts, sample interval slider (writes to firmware over BLE), solar harvest estimate, lux threshold alert, CSV export, PMIC status panel (placeholder until Milestone 12).
+**Features:**
+- Live sensor cards (lux, temperature, humidity) with min/max/avg
+- Scrolling history charts
+- Sample interval slider — writes to firmware over BLE, takes effect next cycle
+- Solar harvest estimate computed live from lux reading using a linear model fit to measured OPV panel data
+- Lux threshold alert at ~208 lux (break-even point for 0.5% duty cycle at 400 lux baseline)
+- PMIC battery status panel with live ST_LOAD, ST_STO, ST_STO_RDY, ST_STO_OVDIS tiles
+- CSV export of all session readings
 
-**Solar model:** linear fit to two measured OPV panel data points — 400 lux → 0.21125 mWh, 3000 lux → 3.063 mWh. Break-even for 0.5% duty cycle is ~208 lux. Lux card turns red below that.
-
-
+**Solar model:** linear fit to two measured data points — 400 lux → 0.211 mWh, 3000 lux → 3.063 mWh.
 
 ---
 
-## Milestone Status
+## Build and Flash
 
-Milestones 0–11 complete. Milestone 12 (PMIC) is next — wiring and firmware steps above.
+1. Install [nRF Connect for Desktop](https://www.nordicsemi.com/Products/Development-tools/nRF-Connect-for-Desktop)
+2. Open Toolchain Manager and install the nRF Connect SDK (latest stable)
+3. Install the nRF Connect for VS Code extension pack
+4. Open `apps/sensor_bringup` as the application folder
+5. Add a build configuration with board target `nrf52840dk_nrf52840`
+6. Build and flash using the nRF Connect sidebar
 
+**Debug output is via RTT.** After flashing, open Connected Devices → RTT → Search for RTT memory address automatically, then press the RESET button on the DK to catch the boot log.
+
+---
+
+## What's Working
+
+- VEML7700 lux readings and SHTC3 temperature/humidity over I2C
+- Duty-cycled firmware with BLE advertising on each wake cycle
+- Custom GATT service — connects from phone or laptop without pairing
+- Web dashboard with live sensor data, history charts, and CSV export
+- Adjustable sample interval from the dashboard over BLE
+- AEM10330 PMIC status panel with live battery state
+- Solar harvest estimate and lux threshold alert in dashboard
+
+## In Progress
+
+- Battery ADC readout (AIN6 / P0.30) — firmware written, hardware wiring under retest
+- True system-off deep sleep (`pm_state_force`) to minimize sleep current
+
+---
+
+## Team
+
+| Name | Major |
+|---|---|
+| Daniel O'Connor | EE |
+| Devin Bourgeois | EE |
+| Yashad Gurude | EE |
+| Omar Jaafar | CmpE |
+| Grant Elder | EE |
+
+Georgia Institute of Technology — ECE 4013/4014 Senior Design

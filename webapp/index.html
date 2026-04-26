@@ -43,6 +43,7 @@
     #status.error         { color: #f44336; }
 
     #last-updated { font-size: 0.75rem; color: #555; margin-top: 4px; }
+    #uptime-display { font-size: 0.75rem; color: #555; margin-top: 2px; }
 
     /* ── Stat cards ── */
     .cards {
@@ -59,8 +60,8 @@
       border: 1px solid #2a2d3e;
       border-radius: 16px;
       padding: 22px 28px;
-      flex: 1 1 180px;
-      min-width: 160px;
+      flex: 1 1 160px;
+      min-width: 150px;
       transition: border-color 0.3s, background 0.3s;
     }
 
@@ -93,6 +94,7 @@
     .card.temp .current { color: #ef5350; }
     .card.hum  .current { color: #42a5f5; }
     .card.solar .current { color: #66bb6a; }
+    .card.batt .current { color: #ce93d8; }
 
     /* Lux alert state */
     .card.lux.alert {
@@ -115,6 +117,35 @@
     }
     .solar-margin.surplus { color: #66bb6a; }
     .solar-margin.deficit { color: #f44336; }
+
+    /* Battery gauge */
+    .batt-volts {
+      font-size: 0.85rem;
+      color: #666;
+      margin-top: 4px;
+    }
+
+    .batt-bar-track {
+      margin-top: 10px;
+      height: 6px;
+      background: #252838;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .batt-bar-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 3px;
+      background: #66bb6a;
+      transition: width 0.6s ease, background 0.6s ease;
+    }
+
+    .card.batt.low {
+      border-color: #f44336;
+      background: #1f1518;
+    }
+    .card.batt.low .label { color: #f44336; }
 
     /* ── Charts ── */
     .charts {
@@ -225,6 +256,12 @@
       padding: 3px 8px;
       border-radius: 20px;
       border: 1px solid #3a3d52;
+      transition: background 0.3s, color 0.3s, border-color 0.3s;
+    }
+    .panel-badge.solar {
+      background: #1a2e1a;
+      color: #66bb6a;
+      border-color: #2e4a2e;
     }
 
     .pmic-tiles {
@@ -241,7 +278,28 @@
       border-radius: 12px;
       padding: 14px 16px;
       opacity: 0.55;
+      transition: border-color 0.3s, background 0.3s, opacity 0.3s;
     }
+
+    .pmic-tile.active { opacity: 1; }
+
+    .pmic-tile.on {
+      border-color: #2e4a2e;
+      background: #111a11;
+    }
+    .pmic-tile.on .pin-state { color: #66bb6a; }
+
+    .pmic-tile.off {
+      border-color: #252838;
+      background: #14161f;
+    }
+    .pmic-tile.off .pin-state { color: #555; }
+
+    .pmic-tile.alert {
+      border-color: #4a2e2e;
+      background: #1a1111;
+    }
+    .pmic-tile.alert .pin-state { color: #f44336; }
 
     .pmic-tile .pin-name {
       font-size: 0.7rem;
@@ -264,15 +322,17 @@
       line-height: 1.4;
     }
 
-    .pmic-note {
+    .pmic-summary {
       margin-top: 14px;
-      font-size: 0.7rem;
-      color: #444;
-      padding: 8px 12px;
-      background: #14161f;
-      border-radius: 8px;
-      border-left: 3px solid #3a3d52;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #555;
+      text-align: center;
     }
+    .pmic-summary.healthy { color: #66bb6a; }
+    .pmic-summary.mid     { color: #ffd54f; }
+    .pmic-summary.depleted{ color: #f44336; }
+    .pmic-summary.invalid { color: #f44336; }
 
     /* ── Buttons row ── */
     .btn-row {
@@ -313,6 +373,7 @@
   <h1>Nordic IoT Sensor</h1>
   <div id="status"><span class="dot"></span><span id="status-text">Not connected</span></div>
   <div id="last-updated"></div>
+  <div id="uptime-display"></div>
 </header>
 
 <div class="cards">
@@ -344,6 +405,19 @@
       <span>Avg <b id="avg-hum">—</b></span>
     </div>
   </div>
+  <div class="card batt" id="card-batt">
+    <div class="label">Battery</div>
+    <div class="current" id="val-batt-pct">—<span class="unit">%</span></div>
+    <div class="batt-volts" id="val-batt">—</div>
+    <div class="batt-bar-track">
+      <div class="batt-bar-fill" id="batt-bar"></div>
+    </div>
+    <div class="stats">
+      <span>Min <b id="min-batt">—</b></span>
+      <span>Max <b id="max-batt">—</b></span>
+      <span>Avg <b id="avg-batt">—</b></span>
+    </div>
+  </div>
   <div class="card solar">
     <div class="label">Solar Harvest</div>
     <div class="current" id="val-solar">—<span class="unit" id="solar-unit">mWh</span></div>
@@ -367,6 +441,10 @@
     <div class="chart-title">Humidity (%)</div>
     <canvas id="chart-hum" height="80"></canvas>
   </div>
+  <div class="chart-wrap">
+    <div class="chart-title">Battery Voltage (V)</div>
+    <canvas id="chart-batt" height="80"></canvas>
+  </div>
 </div>
 
 <div class="slider-panel">
@@ -382,34 +460,31 @@
 <div class="panel">
   <div class="panel-header">
     <span class="panel-title">PMIC Status — AEM10330</span>
-    <span class="panel-badge">Not yet wired</span>
+    <span class="panel-badge" id="pmic-badge">Not connected</span>
   </div>
   <div class="pmic-tiles">
-    <div class="pmic-tile">
+    <div class="pmic-tile" id="tile-load">
       <div class="pin-name">ST_LOAD</div>
-      <div class="pin-state">—</div>
-      <div class="pin-desc">Load is actively drawing from the harvester output</div>
+      <div class="pin-state" id="state-load">—</div>
+      <div class="pin-desc">Load output is stable and available</div>
     </div>
-    <div class="pmic-tile">
+    <div class="pmic-tile" id="tile-sto">
       <div class="pin-name">ST_STO</div>
-      <div class="pin-state">—</div>
-      <div class="pin-desc">Storage element (battery) is charging</div>
+      <div class="pin-state" id="state-sto">—</div>
+      <div class="pin-desc">Battery above charge-ready threshold</div>
     </div>
-    <div class="pmic-tile">
+    <div class="pmic-tile" id="tile-rdy">
       <div class="pin-name">ST_STO_RDY</div>
-      <div class="pin-state">—</div>
-      <div class="pin-desc">Battery above 3.5 V — ready to power load</div>
+      <div class="pin-state" id="state-rdy">—</div>
+      <div class="pin-desc">Battery above 3.50 V — healthy</div>
     </div>
-    <div class="pmic-tile">
+    <div class="pmic-tile" id="tile-ovdis">
       <div class="pin-name">ST_STO_OVDIS</div>
-      <div class="pin-state">—</div>
-      <div class="pin-desc">Battery below 3.1 V — over-discharge protection active</div>
+      <div class="pin-state" id="state-ovdis">—</div>
+      <div class="pin-desc">Battery below 3.00 V — over-discharge</div>
     </div>
   </div>
-  <div class="pmic-note">
-    AEM10330 GPIO pins not yet connected to nRF52840. Tiles will activate after Milestone 12 wiring.
-    Known issue: simultaneous ST_STO_RDY + ST_STO_OVDIS — likely noise or incorrect pin mapping (see advisor notes).
-  </div>
+  <div class="pmic-summary" id="pmic-summary"></div>
 </div>
 
 <div class="btn-row">
@@ -423,32 +498,53 @@
   const TEMP_UUID     = '12345678-1234-5678-1234-56789abcdef2';
   const HUM_UUID      = '12345678-1234-5678-1234-56789abcdef3';
   const INTERVAL_UUID = '12345678-1234-5678-1234-56789abcdef4';
+  const PMIC_UUID     = '12345678-1234-5678-1234-56789abcdef5';
+  const BATT_UUID     = '12345678-1234-5678-1234-56789abcdef6';
+  const UPTIME_UUID   = '12345678-1234-5678-1234-56789abcdef7';
 
   const MAX_POINTS = 30;
 
+  // ── Li-Po discharge curve ────────────────────────────────────────────────────
+  // Lookup table: [voltage, percentage] pairs, high to low
+  const LIPO_CURVE = [
+    [4.20, 100], [4.05, 90], [3.90, 80], [3.80, 70],
+    [3.70, 60],  [3.60, 50], [3.50, 30], [3.40, 20],
+    [3.30, 10],  [3.20, 5],  [3.00, 0],
+  ];
+
+  function voltsToPercent(v) {
+    if (v >= 4.20) return 100;
+    if (v <= 3.00) return 0;
+    for (let i = 0; i < LIPO_CURVE.length - 1; i++) {
+      const [v1, p1] = LIPO_CURVE[i];
+      const [v2, p2] = LIPO_CURVE[i + 1];
+      if (v <= v1 && v >= v2) {
+        return Math.round(p2 + (p1 - p2) * (v - v2) / (v1 - v2));
+      }
+    }
+    return 0;
+  }
+
   // ── Solar linear model ──────────────────────────────────────────────────────
-  // Two measured data points from Dracula Technologies indoor OPV panel:
-  //   400 lux  → 0.21125 mWh   (ambient room light)
-  //   3000 lux → 3.063 mWh     (flashlight — estimated lux)
-  const SOLAR_M = (3.063 - 0.21125) / (3000 - 400);   // mWh per lux ≈ 0.001097
-  const SOLAR_B = 0.21125 - SOLAR_M * 400;              // y-intercept ≈ -0.2275 mWh
-  const SYS_mWh = 0.00107;                               // system consumption per cycle at 0.5% duty
-  const LUX_BREAKEVEN = Math.ceil((SYS_mWh - SOLAR_B) / SOLAR_M); // ~208 lux
+  const SOLAR_M = (3.063 - 0.21125) / (3000 - 400);
+  const SOLAR_B = 0.21125 - SOLAR_M * 400;
+  const SYS_mWh = 0.00107;
+  const LUX_BREAKEVEN = Math.ceil((SYS_mWh - SOLAR_B) / SOLAR_M);
 
   function solarEst(lux) {
     return Math.max(0, SOLAR_M * lux + SOLAR_B);
   }
 
-  // Update break-even display with computed value
   document.getElementById('val-breakeven').textContent = `~${LUX_BREAKEVEN} lux`;
 
-  // ── Session readings log (for CSV export) ──────────────────────────────────
-  const readings = [];   // { ts, lux, temp, hum }
+  // ── Session readings log ───────────────────────────────────────────────────
+  const readings = [];
   let lastTemp = null;
   let lastHum  = null;
+  let lastBatt = null;
 
-  const history = { lux: [], temp: [], hum: [] };
-  const stats   = { lux: [], temp: [], hum: [] };
+  const history = { lux: [], temp: [], hum: [], batt: [] };
+  const stats   = { lux: [], temp: [], hum: [], batt: [] };
 
   let intervalChar = null;
 
@@ -538,13 +634,13 @@
     drawChart('chart-lux',  history.lux,  '#ffd54f');
     drawChart('chart-temp', history.temp, '#ef5350');
     drawChart('chart-hum',  history.hum,  '#42a5f5');
+    drawChart('chart-batt', history.batt, '#ce93d8');
   }
 
   function updateSolar(lux) {
     const est    = solarEst(lux);
     const margin = est - SYS_mWh;
 
-    // Display value — use µWh below 0.1 mWh for readability
     let dispVal, dispUnit;
     if (est < 0.1) {
       dispVal  = (est * 1000).toFixed(1);
@@ -555,7 +651,6 @@
     }
     el('val-solar').innerHTML = `${dispVal}<span class="unit">${dispUnit}</span>`;
 
-    // Margin line
     const marginEl = el('solar-margin');
     if (est === 0) {
       marginEl.textContent = '';
@@ -569,7 +664,6 @@
       marginEl.className = 'solar-margin deficit';
     }
 
-    // Lux threshold alert
     const luxCard = el('card-lux');
     if (lux < LUX_BREAKEVEN) {
       luxCard.classList.add('alert');
@@ -589,12 +683,12 @@
     updateLastUpdated();
     updateSolar(lux);
 
-    // Record reading
     readings.push({
-      ts:   new Date().toISOString(),
-      lux:  lux,
-      temp: lastTemp,
-      hum:  lastHum,
+      ts:    new Date().toISOString(),
+      lux:   lux,
+      temp:  lastTemp,
+      hum:   lastHum,
+      batt:  lastBatt,
       solar: solarEst(lux)
     });
     el('btn-export').disabled = false;
@@ -626,6 +720,112 @@
     drawChart('chart-hum', history.hum, '#42a5f5');
   }
 
+  function onBatt(event) {
+    const mv    = new DataView(event.target.value.buffer).getUint32(0, true);
+    const volts = mv / 1000;
+    const pct   = voltsToPercent(volts);
+
+    el('val-batt-pct').innerHTML = volts > 0
+      ? `${pct}<span class="unit">%</span>`
+      : `—<span class="unit">%</span>`;
+    el('val-batt').textContent = volts > 0 ? `${volts.toFixed(2)} V` : '—';
+
+    const bar = el('batt-bar');
+    bar.style.width = volts > 0 ? `${pct}%` : '0%';
+    bar.style.background = pct > 50 ? '#66bb6a' : pct > 20 ? '#ffd54f' : '#f44336';
+
+    const card = el('card-batt');
+    if (pct <= 20 && volts > 0) {
+      card.classList.add('low');
+    } else {
+      card.classList.remove('low');
+    }
+
+    lastBatt = volts;
+    const { mn, mx, av } = push('batt', volts);
+    el('min-batt').textContent = mn.toFixed(2);
+    el('max-batt').textContent = mx.toFixed(2);
+    el('avg-batt').textContent = av.toFixed(2);
+    drawChart('chart-batt', history.batt, '#ce93d8');
+  }
+
+  function onUptime(event) {
+    const s = new DataView(event.target.value.buffer).getUint32(0, true);
+    if (s === 0) { el('uptime-display').textContent = ''; return; }
+    const h   = Math.floor(s / 3600);
+    const m   = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    const str = h > 0 ? `${h}h ${m}m ${sec}s` : `${m}m ${sec}s`;
+    el('uptime-display').textContent = `Running untethered: ${str}`;
+  }
+
+  function setTile(tileId, stateId, value, isAlert) {
+    const tile  = el(tileId);
+    const state = el(stateId);
+    tile.classList.add('active');
+    tile.classList.remove('on', 'off', 'alert');
+    if (isAlert && value === 1) {
+      tile.classList.add('alert');
+      state.textContent = 'YES';
+    } else if (value === 1) {
+      tile.classList.add('on');
+      state.textContent = 'YES';
+    } else {
+      tile.classList.add('off');
+      state.textContent = 'NO';
+    }
+  }
+
+  function resetPmicTiles() {
+    ['tile-load','tile-sto','tile-rdy','tile-ovdis'].forEach(id => {
+      const tile = el(id);
+      tile.classList.remove('active','on','off','alert');
+    });
+    ['state-load','state-sto','state-rdy','state-ovdis'].forEach(id => {
+      el(id).textContent = '—';
+    });
+    el('pmic-summary').textContent = '';
+    el('pmic-summary').className = 'pmic-summary';
+    const badge = el('pmic-badge');
+    badge.textContent = 'Not connected';
+    badge.className = 'panel-badge';
+  }
+
+  function onPmic(event) {
+    const d = new Uint8Array(event.target.value.buffer);
+    const stLoad = d[0], stSto = d[1], stRdy = d[2], stOvdis = d[3];
+
+    setTile('tile-load',  'state-load',  stLoad,  false);
+    setTile('tile-sto',   'state-sto',   stSto,   false);
+    setTile('tile-rdy',   'state-rdy',   stRdy,   false);
+    setTile('tile-ovdis', 'state-ovdis', stOvdis, true);
+
+    const summary = el('pmic-summary');
+    const badge   = el('pmic-badge');
+
+    if (stLoad === 1) {
+      badge.textContent = 'Solar Powered';
+      badge.className = 'panel-badge solar';
+    } else {
+      badge.textContent = 'Live';
+      badge.className = 'panel-badge';
+    }
+
+    if (stRdy === 1 && stOvdis === 1) {
+      summary.textContent = 'Invalid state — check wiring';
+      summary.className = 'pmic-summary invalid';
+    } else if (stRdy === 1) {
+      summary.textContent = 'Battery healthy — above 3.50 V';
+      summary.className = 'pmic-summary healthy';
+    } else if (stOvdis === 1) {
+      summary.textContent = 'Battery depleted — below 3.00 V';
+      summary.className = 'pmic-summary depleted';
+    } else {
+      summary.textContent = 'Battery mid-range — 3.00–3.50 V';
+      summary.className = 'pmic-summary mid';
+    }
+  }
+
   /* Slider */
   el('interval-slider').addEventListener('input', e => {
     el('interval-display').textContent = e.target.value;
@@ -639,7 +839,7 @@
     try {
       await intervalChar.writeValue(buf);
       const hint = el('slider-hint');
-      hint.textContent = `✓ Sent ${seconds}s — takes effect next cycle`;
+      hint.textContent = `Sent ${seconds}s — takes effect next cycle`;
       hint.className = 'slider-hint sent';
       setTimeout(() => {
         hint.textContent = 'Adjust to control the firmware duty cycle';
@@ -653,9 +853,9 @@
   /* CSV export */
   el('btn-export').addEventListener('click', () => {
     if (readings.length === 0) return;
-    const header = 'Timestamp,Lux (lux),Temperature (°C),Humidity (%),Solar Estimate (mWh)\r\n';
+    const header = 'Timestamp,Lux (lux),Temperature (°C),Humidity (%),Battery (V),Solar Estimate (mWh)\r\n';
     const rows = readings.map(r =>
-      `${r.ts},${r.lux},${r.temp ?? ''},${r.hum ?? ''},${r.solar.toFixed(6)}`
+      `${r.ts},${r.lux},${r.temp ?? ''},${r.hum ?? ''},${r.batt != null ? r.batt.toFixed(3) : ''},${r.solar.toFixed(6)}`
     ).join('\r\n');
     const blob = new Blob([header + rows], { type: 'text/csv' });
     const url  = URL.createObjectURL(blob);
@@ -679,13 +879,19 @@
 
       device.addEventListener('gattserverdisconnected', () => {
         setStatus('Disconnected', 'error');
-        el('val-lux').innerHTML  = '—<span class="unit">lux</span>';
-        el('val-temp').innerHTML = '—<span class="unit">°C</span>';
-        el('val-hum').innerHTML  = '—<span class="unit">%</span>';
+        el('val-lux').innerHTML   = '—<span class="unit">lux</span>';
+        el('val-temp').innerHTML  = '—<span class="unit">°C</span>';
+        el('val-hum').innerHTML   = '—<span class="unit">%</span>';
+        el('val-batt-pct').innerHTML = '—<span class="unit">%</span>';
+        el('val-batt').textContent = '—';
+        el('batt-bar').style.width = '0%';
+        el('card-batt').classList.remove('low');
         el('val-solar').innerHTML = '—<span class="unit">mWh</span>';
         el('solar-margin').textContent = '';
         el('solar-margin').className = 'solar-margin';
         el('card-lux').classList.remove('alert');
+        el('uptime-display').textContent = '';
+        resetPmicTiles();
         el('interval-slider').disabled = true;
         intervalChar = null;
         el('btn').disabled = false;
@@ -697,14 +903,20 @@
       const server  = await device.gatt.connect();
       const service = await server.getPrimaryService(SERVICE_UUID);
 
-      const luxChar  = await service.getCharacteristic(LUX_UUID);
-      const tempChar = await service.getCharacteristic(TEMP_UUID);
-      const humChar  = await service.getCharacteristic(HUM_UUID);
-      intervalChar   = await service.getCharacteristic(INTERVAL_UUID);
+      const luxChar    = await service.getCharacteristic(LUX_UUID);
+      const tempChar   = await service.getCharacteristic(TEMP_UUID);
+      const humChar    = await service.getCharacteristic(HUM_UUID);
+      intervalChar     = await service.getCharacteristic(INTERVAL_UUID);
+      const pmicChar   = await service.getCharacteristic(PMIC_UUID);
+      const battChar   = await service.getCharacteristic(BATT_UUID);
+      const uptimeChar = await service.getCharacteristic(UPTIME_UUID);
 
-      onLux ({ target: { value: await luxChar.readValue()  } });
-      onTemp({ target: { value: await tempChar.readValue() } });
-      onHum ({ target: { value: await humChar.readValue()  } });
+      onLux   ({ target: { value: await luxChar.readValue()    } });
+      onTemp  ({ target: { value: await tempChar.readValue()   } });
+      onHum   ({ target: { value: await humChar.readValue()    } });
+      onPmic  ({ target: { value: await pmicChar.readValue()   } });
+      onBatt  ({ target: { value: await battChar.readValue()   } });
+      onUptime({ target: { value: await uptimeChar.readValue() } });
 
       const ivVal = await intervalChar.readValue();
       const currentInterval = new DataView(ivVal.buffer).getUint32(0, true);
@@ -719,6 +931,15 @@
 
       await humChar.startNotifications();
       humChar.addEventListener('characteristicvaluechanged', onHum);
+
+      await pmicChar.startNotifications();
+      pmicChar.addEventListener('characteristicvaluechanged', onPmic);
+
+      await battChar.startNotifications();
+      battChar.addEventListener('characteristicvaluechanged', onBatt);
+
+      await uptimeChar.startNotifications();
+      uptimeChar.addEventListener('characteristicvaluechanged', onUptime);
 
       el('interval-slider').disabled = false;
       el('slider-hint').textContent = 'Adjust to control the firmware duty cycle';
